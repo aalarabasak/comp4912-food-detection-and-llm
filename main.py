@@ -9,9 +9,14 @@ from PIL import Image, ImageOps
 import io#handles in-memory bytes -image data
 from typing import List, Dict, Optional
 import uvicorn #server to run FastAPI
+import google.generativeai as genai
+from pydantic import BaseModel
 
 # API Key for authentication
 API_KEY = "PP4d6Kksn9HgwVoJZ8TCUuAEpYgHTtAT"
+
+# Google Gemini API Key
+GOOGLE_API_KEY = "AIzaSyCkGctBfFBXKj_0BrFzOP9DQCPoPaIaGB0"
 
 app = FastAPI(#Creates the FastAPI app instance
     title="Food Detection API",
@@ -40,6 +45,11 @@ async def verify_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Ke
             detail="Invalid API key. Access denied."
         )
     return x_api_key
+
+
+# Pydantic model for advice request
+class AdviceRequest(BaseModel):
+    food_name: str
 
 
 @app.on_event("startup") #runs this function when the server starts
@@ -145,6 +155,40 @@ async def detect_food(
         
     except Exception as e:#catchs errors if any
         raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
+
+
+@app.post("/advice")
+async def get_advice(
+    request: AdviceRequest,
+    api_key: str = Depends(verify_api_key)
+):
+    
+    try:
+        # Configure Gemini API
+        genai.configure(api_key=GOOGLE_API_KEY) 
+        
+        # Create model instance
+        # Using 'models/' prefix for clarity, but it works without it too
+        model = genai.GenerativeModel('models/gemini-2.5-flash')
+        
+        # Construct prompt
+        prompt = f"Tell me a short, one-sentence fun fact about {request.food_name}."
+        
+        # Generate content
+        response = model.generate_content(prompt)
+        
+        # Return response
+        return JSONResponse(content={
+            "success": True,
+            "advice": response.text.strip()
+        })
+        
+    except Exception as e:
+        print(f"gemini error {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error calling Gemini API: {str(e)}"
+        )
 
 
 if __name__ == "__main__": #  uv run python main.py
