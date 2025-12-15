@@ -47,9 +47,31 @@ async def verify_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Ke
     return x_api_key
 
 
-# Pydantic model for advice request
-class AdviceRequest(BaseModel):
-    food_name: str
+# data modelss to give the llm approriate prompt
+class NutritionValues(BaseModel):
+    calories: float
+    protein: float
+    fat: float
+    carbs: float
+
+# this is for rutf or supplements
+class FoodItem(BaseModel):
+    name: str
+    values: NutritionValues
+
+class ChildProfile(BaseModel):
+    age: str          
+    gender: str
+    weight: float     
+    risk_status: str  
+    risk_reason: str 
+
+class FullAdviceRequest(BaseModel):
+    child: ChildProfile
+    target_values: NutritionValues   
+    consumed_values: NutritionValues  
+    rutf_inventory: List[FoodItem]    
+    supplements: List[FoodItem]
 
 
 @app.on_event("startup") #runs this function when the server starts
@@ -159,7 +181,7 @@ async def detect_food(
 
 @app.post("/advice")
 async def get_advice(
-    request: AdviceRequest,
+    request: FullAdviceRequest,
     api_key: str = Depends(verify_api_key)
 ):
     
@@ -170,9 +192,46 @@ async def get_advice(
         # Create model instance
         # Using 'models/' prefix for clarity, but it works without it too
         model = genai.GenerativeModel('models/gemini-2.5-flash')
+
+        #convert their values into text to inform llm
+        rutf_text = "\n".join([
+            f"- {item.name}: {item.values.calories}kcal, {item.values.protein}g Prot, {item.values.fat}g Fat, {item.values.carbs}g Carb" 
+            for item in request.rutf_inventory
+        ])
         
+        supplements_text = "\n".join([
+            f"- {item.name}: {item.values.calories}kcal, {item.values.protein}g Prot, {item.values.fat}g Fat, {item.values.carbs}g Carb" 
+            for item in request.supplements
+        ])
+
         # Construct prompt
-        prompt = f"Tell me a short, one-sentence fun fact about {request.food_name}."
+        prompt = f"""
+        Role: Act as a Nutrition Assistant for field workers. 
+        Task: Write a simple 4-5 sentence recommendation in English based on the data below.
+
+        DATA:
+        - Patient: {request.child.age}, {request.child.weight}kg, Risk: {request.child.risk_status} ({request.child.risk_reason})
+        - Weekly Gap (Consumed vs Target): 
+          Kcal: {request.consumed_values.calories:.0f}/{request.target_values.calories:.0f}
+          Protein: {request.consumed_values.protein:.0f}/{request.target_values.protein:.0f}g
+          Fat: {request.consumed_values.fat:.0f}/{request.target_values.fat:.0f}g
+          Carbs: {request.consumed_values.carbs:.0f}/{request.target_values.carbs:.0f}g
+        
+        STOCK:
+        {rutf_text}
+        {supplements_text}
+
+        RULES:
+        1. If Risk is 'High', YOU MUST prescribe RUTF based on weight.
+        2. Identify the main nutrient gap (e.g., low protein).
+        3. Suggest 1 supplement from stock to help close that gap. 
+        4. Keep English very simple. No jargon.
+
+        OUTPUT FORMAT:
+        **Status:** [1 sentence summary of risk and gap]
+        **Action:** [RUTF dosage and duration]
+        **Diet:** [Supplement advice (in supplement list fuits)]
+        """
         
         # Generate content
         response = model.generate_content(prompt)
