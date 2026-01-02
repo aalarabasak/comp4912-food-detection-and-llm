@@ -81,8 +81,8 @@ async def load_model():
         
 
         #device verify
-        device = "mps" if torch.backends.mps.is_available() else "cpu"#checks if MPS apple silicon is available otherwise uses CPU
-        print(f"model loaded successfully on {device}")#debugging message
+        device = "mps" if torch.backends.mps.is_available() else "cpu"#checks MPS is available 
+        print(f"model loaded successfully on {device}")
         print(f" Model classes: {list(model.names.values())}")
         
     except Exception as e:
@@ -181,7 +181,7 @@ async def get_advice(
 ):
     
     try:
-        #connect Gemini API
+        #connect Gemini api
         genai.configure(api_key=GOOGLE_API_KEY) 
         
 
