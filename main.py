@@ -1,39 +1,36 @@
 
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Header, Depends
-#fastapi-> web framework - file-> handles file uploads - uploadfile->represents an uploaded file - HTTPException: raises HTTP errors
-from fastapi.responses import JSONResponse #returns JSON responses.
-from ultralytics import YOLO#loads and runs YOLOv8 models
-import torch #used for device detection
+
+from fastapi.responses import JSONResponse 
+from ultralytics import YOLO
+import torch 
 from PIL import Image, ImageOps
-import io#handles in-memory bytes -image data
+import io
 from typing import List, Dict, Optional
-import uvicorn #server to run FastAPI
+import uvicorn 
 import google.generativeai as genai
 from pydantic import BaseModel
 
-# API Key for authentication
+#API Key 
 API_KEY = "PP4d6Kksn9HgwVoJZ8TCUuAEpYgHTtAT"
 
-# Google Gemini API Key
+#Google Gemini API Key
 GOOGLE_API_KEY = "AIzaSyCkGctBfFBXKj_0BrFzOP9DQCPoPaIaGB0"
 
-app = FastAPI(#Creates the FastAPI app instance
+app = FastAPI(#creates the fastapi app instance
     title="Food Detection API",
     description="Detect food items in images using YOLOv8",
     version="0.1.0"
 )
 
-# Global model variable (loaded once at startup)
+
 model = None
 
 
-# API Key verification dependency
+#verify api key
 async def verify_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Key")):
-    """
-    Verify API key from request header.
-    Raises HTTPException if API key is missing or invalid.
-    """
+  
     if x_api_key is None:
         raise HTTPException(
             status_code=401,
@@ -47,14 +44,14 @@ async def verify_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Ke
     return x_api_key
 
 
-# data modelss to give the llm approriate prompt
+#data modelss to give llm prompt
 class NutritionValues(BaseModel):
     calories: float
     protein: float
     fat: float
     carbs: float
 
-# this is for rutf or supplements
+
 class FoodItem(BaseModel):
     name: str
     values: NutritionValues
@@ -75,15 +72,15 @@ class FullAdviceRequest(BaseModel):
 
 
 @app.on_event("startup") #runs this function when the server starts
-async def load_model():#Load  model on startup
+async def load_model():
 
     global model
     try:
-        # Load the pretrained food detection model from the Food-Detection repo this model is specially trained for food detection
+       
         model = YOLO("yolo11m.pt")#https://docs.ultralytics.com/tr/datasets/detect/coco/#dataset-yaml
-        #Loads the model from best.pt and assigns it to model
+        
 
-        # Verify device
+        #device verify
         device = "mps" if torch.backends.mps.is_available() else "cpu"#checks if MPS apple silicon is available otherwise uses CPU
         print(f"model loaded successfully on {device}")#debugging message
         print(f" Model classes: {list(model.names.values())}")
@@ -93,18 +90,18 @@ async def load_model():#Load  model on startup
         raise
 
 
-@app.get("/")#handles GET requests to /.
+@app.get("/")#handles get requests 
 async def root():
     return {
         "status": "online",
         "message": "Food Detection API is running",
         "device": "mps" if torch.backends.mps.is_available() else "cpu"
-    }#Returns a dictionary (converted to JSON) with status info.
+    }
 
 
-@app.get("/health")#handles GET requests to /health
+@app.get("/health")#handles requests to /health
 async def health():
-    #Health check endpoint - returns API status and model information
+    
     return {
         "status": "healthy",
         "message": "Food Detection API is running",
@@ -114,49 +111,47 @@ async def health():
     }
 
 
-@app.post("/detect")#handles POST requests to /detect
+@app.post("/detect")#handlesrequests to /detect
 async def detect_food(
     file: UploadFile = File(...),
-    api_key: str = Depends(verify_api_key)  # Requires API key authentication
+    api_key: str = Depends(verify_api_key) 
 ):
 
-    #Detect food items in an uploaded image-uploadfile
+
     
-    #returns json with bounding boxes confidence scores and class names
 
     if model is None:
         raise HTTPException(status_code=503, detail="Model not loaded")#checks if the model is loaded
     
-    # Validate file type
+    
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image")
     try:
-        # Read image file
+        #read image file
         image_bytes = await file.read()
         image = Image.open(io.BytesIO(image_bytes))
 
         image = ImageOps.exif_transpose(image)
         
 
-        # Convert to RGB if necessary
+        #turn to rgb
         if image.mode != "RGB":
             image = image.convert("RGB")
         
-        # Run inference in apple silicon mps-runs detection on the image using the selected device
+        #run inference 
         results = model(image, device="mps" if torch.backends.mps.is_available() else "cpu", conf = 0.15)
         
-        # Parse results
+        #parse results
         detections = []
         for result in results:
             boxes = result.boxes
             for box in boxes:
-                # Get bounding box coordinates (x1, y1, x2, y2)
-                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().tolist()        
-                # Get confidence score
-                confidence = float(box.conf[0].cpu().numpy())
+  
+                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().tolist()      #get bounding box   
+                confidence = float(box.conf[0].cpu().numpy()) #get score
                 
-                # Get class name
-                class_id = int(box.cls[0].cpu().numpy())
+                
+                class_id = int(box.cls[0].cpu().numpy()) #get class name
                 class_name = model.names[class_id]
                 
                 detections.append({"class": class_name,
@@ -167,15 +162,15 @@ async def detect_food(
                         "x2": round(x2, 2),
                         "y2": round(y2, 2)
                     }
-                })#adds detection dictionary with class confidence and rounded bbox coordinates
+                })
         
         return JSONResponse(content={
             "success": True,
             "detections": detections,
             "count": len(detections)
-        })#returns a jsonresponse with successdetections list and count
+        })
         
-    except Exception as e:#catchs errors if any
+    except Exception as e:#catchs errors 
         raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
 
 
@@ -186,14 +181,13 @@ async def get_advice(
 ):
     
     try:
-        # Configure Gemini API
+        #connect Gemini API
         genai.configure(api_key=GOOGLE_API_KEY) 
         
-        # Create model instance
-        # Using 'models/' prefix for clarity, but it works without it too
+
         model = genai.GenerativeModel('models/gemini-2.5-flash')
 
-        #convert their values into text to inform llm
+        #convert values into text 
         rutf_text = "\n".join([
             f"- {item.name}: {item.values.calories}kcal, {item.values.protein}g Prot, {item.values.fat}g Fat, {item.values.carbs}g Carb" 
             for item in request.rutf_inventory
@@ -204,7 +198,7 @@ async def get_advice(
             for item in request.supplements
         ])
 
-        # Construct prompt
+        #prompt
         prompt = f"""
         Role: Act as a Nutrition Assistant for field workers. 
         Task: Write a simple 4-5 sentence recommendation in English based on the data below.
@@ -233,10 +227,9 @@ async def get_advice(
         **Diet:** [Supplement advice (in supplement list fuits)]
         """
         
-        # Generate content
+        #generate content
         response = model.generate_content(prompt)
-        
-        # Return response
+
         return JSONResponse(content={
             "success": True,
             "advice": response.text.strip()
@@ -250,10 +243,10 @@ async def get_advice(
         )
 
 
-if __name__ == "__main__": #  uv run python main.py
+if __name__ == "__main__":
     uvicorn.run(
-        "main:app",#app instance
-        host="0.0.0.0",#accepts connections from any IP
-        port=8000,#listens on port 8000
-        reload=True  # autoreload on code changes 
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True  
     )
