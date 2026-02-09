@@ -13,14 +13,14 @@ import google.generativeai as genai
 from pydantic import BaseModel
 
 #API Key 
-API_KEY = "PP4d6Kksn9HgwVoJZ8TCUuAEpYgHTtAT"
+API_KEY = "<api_key>"
 
 #Google Gemini API Key
-GOOGLE_API_KEY = "AIzaSyCkGctBfFBXKj_0BrFzOP9DQCPoPaIaGB0"
+GOOGLE_API_KEY = "<google_api_key>"
 
 app = FastAPI(#creates the fastapi app instance
     title="Food Detection API",
-    description="Detect food items in images using YOLOv8",
+    description="Detect food items in images using YOLOv11",
     version="0.1.0"
 )
 
@@ -134,7 +134,7 @@ async def detect_food(
         image = ImageOps.exif_transpose(image)
         
 
-        #turn to rgb
+        #turn to rgb if image is in different mode like RGBA, grayscale
         if image.mode != "RGB":
             image = image.convert("RGB")
         
@@ -153,7 +153,8 @@ async def detect_food(
                 
                 class_id = int(box.cls[0].cpu().numpy()) #get class name
                 class_name = model.names[class_id]
-                
+
+               # Creates a dictionary with class name, confidence, and bounding box coordinates
                 detections.append({"class": class_name,
                     "confidence": round(confidence, 4),
                     "bbox": {
@@ -227,7 +228,7 @@ async def get_advice(
         **Diet:** [Supplement advice (in supplement list fuits)]
         """
         
-        #generate content
+        #generate content output
         response = model.generate_content(prompt)
 
         return JSONResponse(content={
@@ -246,7 +247,7 @@ async def get_advice(
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",
+        host="0.0.0.0", #Accept connections from any device, not just this computer
         port=8000,
-        reload=True  
+        reload=True # Auto-restart when code changes
     )
